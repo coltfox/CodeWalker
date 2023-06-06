@@ -8,6 +8,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
+using System.Collections;
+using System.Diagnostics;
 
 namespace CodeWalker.GameFiles
 {
@@ -226,6 +228,13 @@ namespace CodeWalker.GameFiles
                 //GetShadersXml();
                 //GetArchetypeTimesList();
                 //string typestr = PsoTypes.GetTypesString();
+                //TestCompositeTransforms();
+                //TestData2();
+                //TestMaxVertCount();
+                //TestMaxShaderVertCount();
+                //TestModelShit();
+                //TestDrawableMatrices();
+                //TestYddSkelLengths();
             }
             else
             {
@@ -5411,8 +5420,1022 @@ namespace CodeWalker.GameFiles
 
 
         }
+        public void TestCompositeTransforms()
+        { 
+            var boxesWithTransforms = new HashSet<string>();
+            var spheresWithTransforms = new HashSet<string>();
+            var capsulesWithTransforms = new HashSet<string>();
+            var cylindersWithTransforms = new HashSet<string>();
+            var discsWithTransforms = new HashSet<string>();
+            var geometriesWithTransforms = new HashSet<string>();
+            var bvhsWithTransforms = new HashSet<string>();
+
+            void traceFileNames(HashSet<string> names, string header)
+            {
+                Trace.WriteLine(header);
+                Trace.WriteLine("======================================");
+                foreach (string line in names)
+                {
+                    Trace.WriteLine(line);
+                }
+            }
+
+            void testBounds(Bounds bounds, string name)
+            {
+                if (bounds is BoundComposite)
+                {
+                    BoundComposite composite = bounds as BoundComposite;
+
+                    for (int i = 0; i < composite.Children.Count; i++)
+                    {
+
+                        Bounds child = composite.Children[i];
+                        testBounds(child, name);
+                    }
+                    return;
+                }
+
+                if (bounds is null || bounds.Transform == Matrix.Identity)
+                {
+                    return;
+                }
+
+                bounds.Transform.Decompose(out Vector3 scale, out Quaternion rotation, out Vector3 translation);
+                rotation.Normalize();
+
+                double error = 0.05;
+
+                if ((scale - Vector3.One).Length() > error)//((scale - Vector3.One).Length() > 0.1) 
+                {
+                    Debug.WriteLine(String.Format("Scale: {0}", scale));
+                    name += " (Scale)";
+                }
+                
+                if (Math.Abs(Quaternion.Dot(rotation, Quaternion.Identity)) < 1.0 - error)
+                {
+                    name += " (Rotation)";
+                }
+
+                if (translation.Length() > error)
+                {
+                    name += " (Translation)";
+                }
+
+                switch (bounds)
+                {
+                    case BoundBox box:
+                        boxesWithTransforms.Add(name);
+                        return;
+                    case BoundSphere sphere:
+                        spheresWithTransforms.Add(name);
+                        return;
+                    case BoundCapsule capsule:
+                        capsulesWithTransforms.Add(name);
+                        return;
+                    case BoundCylinder cylinder:
+                        cylindersWithTransforms.Add(name);
+                        return;
+                    case BoundDisc disc:
+                        discsWithTransforms.Add(name);
+                        return;
+                    case BoundBVH bvh:
+                        bvhsWithTransforms.Add(name);
+                        return;
+                    case BoundGeometry geom:
+                        geometriesWithTransforms.Add(name);
+                        return;
+                }
+            }
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (float) AllRpfs.Count) * 100;
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (float) file.AllEntries.Count) * 100;
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+
+                    {
+                        Bounds bounds = null;
+                        if (entry.NameLower.EndsWith(".ydr"))
+                        {
+                            YdrFile ydr = null;
+                            try
+                            {
+                                ydr = RpfMan.GetFile<YdrFile>(entry);
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateStatus("Error! " + ex.ToString());
+                            }
+
+                            bounds = ydr?.Drawable?.Bound;
+
+                        }
+                        else if (entry.NameLower.EndsWith(".yft"))
+                        {
+                            YftFile yft = null;
+                            try
+                            {
+                                yft = RpfMan.GetFile<YftFile>(entry);
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateStatus("Error! " + ex.ToString());
+                            }
+
+                            bounds = yft?.Fragment?.PhysicsLODGroup?.PhysicsLOD1?.Bound;
+                        }
+                        else if (entry.NameLower.EndsWith(".ybn"))
+                        {
+                            YbnFile ybn = null;
+                            try
+                            {
+                                ybn = RpfMan.GetFile<YbnFile>(entry);
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateStatus("Error! " + ex.ToString());
+                            }
+
+                            bounds = ybn?.Bounds;
+                        }
+
+                        if (bounds != null)
+                        {
+                            testBounds(bounds, entryName);
+                        }
+                    }
+                }
+            }
+
+            traceFileNames(boxesWithTransforms, "Boxes with transforms");
+            traceFileNames(spheresWithTransforms, "Spheres with transforms");
+            traceFileNames(discsWithTransforms, "Discs with transforms");
+            traceFileNames(capsulesWithTransforms, "Capsules with transforms");
+            traceFileNames(cylindersWithTransforms, "Cylinders with transforms");
+            traceFileNames(bvhsWithTransforms, "BVHs with transforms");
+            traceFileNames(geometriesWithTransforms, "Geometries with transforms");
+        }
+
+        public void TestMaxVertCount()
+        {
+            string logFileName = "max_vert_count.log";
+            System.IO.File.WriteAllText(logFileName, string.Empty);
+            Trace.Listeners.Add(new TextWriterTraceListener(logFileName));
+
+            uint maxVertCount = 0;
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (float)AllRpfs.Count) * 100;
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (float)file.AllEntries.Count) * 100;
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+
+                    {
+                        DrawableModel[] highModels = null;
+
+                        if (entry.NameLower.EndsWith(".ydr"))
+                        {
+                            YdrFile ydr = null;
+                            try
+                            {
+                                ydr = RpfMan.GetFile<YdrFile>(entry);
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateStatus("Error! " + ex.ToString());
+                            }
+
+                            highModels = ydr?.Drawable?.DrawableModels?.High;
+
+                        }
+                        else if (entry.NameLower.EndsWith(".yft"))
+                        {
+                            YftFile yft = null;
+                            try
+                            {
+                                yft = RpfMan.GetFile<YftFile>(entry);
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateStatus("Error! " + ex.ToString());
+                            }
+
+                            highModels = yft?.Fragment?.Drawable?.DrawableModels?.High;
+                        }
+                        
+                        if (highModels is null)
+                        {
+                            continue; 
+                        }
+
+                        uint vertCount = 0;
+                        foreach (DrawableModel model in highModels)
+                        {
+                            foreach (DrawableGeometry geom in model.Geometries)
+                            {
+                                vertCount += geom.VertexBuffer.VertexCount;
+                            }
+                        }
+
+                        Trace.WriteLine(string.Format("{0}: {1}", entryName, vertCount));
+
+                        if (vertCount > maxVertCount)
+                        {
+                            maxVertCount = vertCount;
+                        }
+                    }
+                }
+            }
+
+            Trace.WriteLine(string.Format("Maximum Vertex Count for all High Models: {0}", maxVertCount));
+        }
+
+        public void TestMaxShaderVertCount()
+        {
+            string logFileName = "max_shader_type_vert_count.log";
+            System.IO.File.WriteAllText(logFileName, string.Empty);
+            Trace.Listeners.Add(new TextWriterTraceListener(logFileName));
+            Trace.AutoFlush = true;
+
+            Dictionary<string, uint> maxShaderVertCounts = new Dictionary<string, uint>();
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (float)AllRpfs.Count) * 100;
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (float)file.AllEntries.Count) * 100;
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+
+                    {
+                        DrawableModel[] highModels = null;
+
+                        if (entry.NameLower.EndsWith(".ydr"))
+                        {
+                            YdrFile ydr = null;
+                            try
+                            {
+                                ydr = RpfMan.GetFile<YdrFile>(entry);
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateStatus("Error! " + ex.ToString());
+                            }
+
+                            highModels = ydr?.Drawable?.DrawableModels?.High;
+
+                        }
+                        else if (entry.NameLower.EndsWith(".yft"))
+                        {
+                            YftFile yft = null;
+                            try
+                            {
+                                yft = RpfMan.GetFile<YftFile>(entry);
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateStatus("Error! " + ex.ToString());
+                            }
+
+                            highModels = yft?.Fragment?.Drawable?.DrawableModels?.High;
+                        }
+
+                        if (highModels is null)
+                        {
+                            continue;
+                        }
+
+                        foreach (DrawableModel model in highModels)
+                        {
+                            foreach (DrawableGeometry geom in model.Geometries)
+                            {
+
+                                string shaderName = geom.Shader.FileName.ToCleanString();
+                                //string vertType = geom.VertexData.VertexType.ToString();
+                                //string key = string.Format("{0} ({1})", shaderName, vertType);
+                                //long memUsage = geom.VertexData.MemoryUsage;
+                                uint vertCount = geom.VertexBuffer.VertexCount;
+
+                                string key = shaderName;
+                                uint value = vertCount;
+
+                                if (!maxShaderVertCounts.ContainsKey(key))
+                                {
+                                    maxShaderVertCounts.Add(key, value);
+                                }
+                                else if (maxShaderVertCounts[key] < value)
+                                {
+                                    maxShaderVertCounts[key] = value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            foreach (KeyValuePair<string, uint> kvp in maxShaderVertCounts)
+            {
+                Trace.WriteLine(string.Format("{0}: {1}", kvp.Key, kvp.Value));
+            }
+        }
+        public void TestData2()
+        {
+            string logFileName = "ydrs_with_data2.log";
+            System.IO.File.WriteAllText(logFileName, string.Empty);
+            Trace.Listeners.Add(new TextWriterTraceListener(logFileName));
+            Trace.AutoFlush = true;
+
+            int numYdrs = 0;
+            int numYdrsData2 = 0;
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (float)AllRpfs.Count) * 100;
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (float)file.AllEntries.Count) * 100;
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+
+                    {
+                        if (!entry.NameLower.EndsWith(".ydr"))
+                        {
+                            continue;
+                        }
+
+                        YdrFile ydr = null;
+
+                        try
+                        {
+                            ydr = RpfMan.GetFile<YdrFile>(entry);
+                        }
+                        catch (Exception ex)
+                        {
+                            UpdateStatus("Error! " + ex.ToString());
+                            continue;
+                        }
+
+                        //List<DrawableModel[]> all_models = new List<DrawableModel[]>() { ydr.Drawable.DrawableModels.High, ydr.Drawable.DrawableModels.Med, ydr.Drawable.DrawableModels.Low, ydr.Drawable.DrawableModels.VLow };
+
+                        //foreach (DrawableModel[] dmodels in all_models)
+                        foreach (DrawableModel dmodel in ydr.Drawable.AllModels)
+                        {   
+                            for (int gi = 0; gi < dmodel.Geometries.Length; gi++)
+                            {
+                                DrawableGeometry geom = dmodel.Geometries[gi];
+                                if (geom.VertexBuffer.Data2 != null && geom.VertexBuffer.Data2 != geom.VertexBuffer.Data1)
+                                {
+                                    Trace.WriteLine(entryName);
+                                    numYdrsData2++;
+                                }
+                            }
+                        }
+
+                        numYdrs++;
+
+                    }
+                }
+            }
+
+            Trace.WriteLine(string.Format("{0:0.0}% of ydrs have Data2.", (numYdrsData2 / numYdrs) * 100));
+        }
+
+        public void TestModelShit()
+        {
+            string logFileName = "drawable_models.log";
+            System.IO.File.WriteAllText(logFileName, string.Empty);
+            Trace.Listeners.Add(new TextWriterTraceListener(logFileName));
+            Trace.AutoFlush = true;
+
+            int numYdrs = 0;
+            int numYdrsPassed = 0;
+            int numYdrsFailed = 0;
+
+            List<DrawableModel[]> getModelGroups(Drawable drawable)
+            {
+                List<DrawableModel[]> modelGroups = new List<DrawableModel[]> { drawable.DrawableModels.High, drawable.DrawableModels.Med, drawable.DrawableModels.Low, drawable.DrawableModels.VLow };
+                return modelGroups.Where(g => g != null).ToList();
+            }
+
+            bool hasSkeleton(Drawable drawable)
+            {
+                return drawable.Skeleton != null;
+            }
+
+            bool hasSkinning(Drawable drawable)
+            {
+                if (!hasSkeleton(drawable))
+                {
+                    return false;
+                }
+
+                foreach (DrawableModel dmodel in drawable.AllModels)
+                {
+                    if (dmodel.HasSkin == 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            bool hasOneSkinnedModelPerLod(Drawable drawable)
+            {
+                List<DrawableModel[]> modelGroups = getModelGroups(drawable);
+
+                foreach (DrawableModel[] group in modelGroups)
+                {
+                    int numSkinned = 0;
+                    foreach (DrawableModel dmodel in group)
+                    {
+                        numSkinned++;
+                    }
+
+                    if (numSkinned > 1)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            bool hasOneModelPerBone(Drawable drawable)
+            {
+                List<DrawableModel[]> modelGroups = getModelGroups(drawable);
+
+                foreach (DrawableModel[] group in modelGroups)
+                {
+                    HashSet<int> boneIds = new HashSet<int>();
+                    foreach (DrawableModel dmodel in group)
+                    {
+                        if (boneIds.Contains(dmodel.BoneIndex))
+                        {
+                            return false;
+                        }
+
+                        boneIds.Add(dmodel.BoneIndex);
+                    }
+                }
+                return true;
+            }
+
+            bool hasOneModelPerLod(Drawable drawable)
+            {
+                List<DrawableModel[]> modelGroups = getModelGroups(drawable);
+
+                foreach (DrawableModel[] group in modelGroups)
+                {
+                    if (group.Length > 1)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            bool modelsMatch(Drawable drawable)
+            {
+                List<DrawableModel[]> modelGroups = getModelGroups(drawable);
+
+                for (int gi = 0; gi < modelGroups.Count; gi++)
+                {
+                    DrawableModel[] modelGroup = modelGroups[gi];
+                    for (int mi = 0; mi < modelGroup.Length; mi++)
+                    {
+                        DrawableModel model = modelGroup[mi];
+                        foreach (DrawableModel[] modelGroup2 in modelGroups)
+                        {
+                            if (mi >= modelGroup2.Length) { continue; }
+
+                            DrawableModel model2 = modelGroup2[mi];
+
+                            if (model.BoneIndex != model2.BoneIndex)
+                            {
+                                return false;
+                            }
+                        }
+
+                    }
+                }
+
+                return true;
+            }
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (float)AllRpfs.Count) * 100;
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (float)file.AllEntries.Count) * 100;
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+
+                    {
+                        if (!entry.NameLower.EndsWith(".ydr"))
+                        {
+                            continue;
+                        }
+
+                        YdrFile ydr = null;
+
+                        try
+                        {
+                            ydr = RpfMan.GetFile<YdrFile>(entry);
+                        }
+                        catch (Exception ex)
+                        {
+                            UpdateStatus("Error! " + ex.ToString());
+                            continue;
+                        }
+
+                        Drawable drawable = ydr.Drawable;
+                        numYdrs++;
+
+                        //if (
+                        //    (hasSkinning(drawable) && hasOneSkinnedModelPerLod(drawable)) ||
+                        //    (hasSkeleton(drawable) && hasOneModelPerBone(drawable)) ||
+                        //    (!hasSkeleton(drawable) && hasOneModelPerLod(drawable))
+                        //    )
+                        //{
+                        //    numYdrsPassed++;
+                        //    continue;
+                        //}
+                        
+                        if (modelsMatch(drawable))
+                        {
+                            numYdrsPassed++;
+                            continue;
+                        }
+
+                        numYdrsPassed++;
+                        Trace.WriteLine(string.Format("Models dont match in {0}!", entryName));
+                    }
+                }
+            }
+
+            Trace.WriteLine(string.Format("In {0:0.0}% of ydrs all tests passed.", (numYdrsPassed / numYdrs) * 100));
+        }
+        public void TestYddSkelLengths()
+        {
+            string timeStamp = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds.ToString();
+            string logFileName = string.Format("./research_logs/ydd_skel_lengths_{0}.log", timeStamp);
+            System.IO.File.WriteAllText(logFileName, string.Empty);
+            Trace.Listeners.Add(new TextWriterTraceListener(logFileName));
+            Trace.AutoFlush = true;
+
+            uint numYdds = 0;
+            uint numYddsSkelsMatch = 0;
+            uint numYddsOnlyFaceBonesDiffer = 0;
+
+            bool doNumBonesMatch(YddFile ydd)
+            {
+                bool numBonesMatch = true;
+
+                uint numBones = 0;
+                bool numBonesSet = false;
+
+                foreach (Drawable drawable in ydd.Drawables)
+                {
+                    if (drawable.Skeleton == null)
+                    {
+                        continue;
+                    }
+
+                    uint numBones2 = drawable.Skeleton.Bones.Count;
+
+                    if (!numBonesSet)
+                    {
+                        numBones = numBones2;
+                        numBonesSet = true;
+                        continue;
+                    }
+
+                    if (numBones2 != numBones)
+                    {
+                        numBonesMatch = false;
+                        break;
+                    }
+                }
+
+                return numBonesMatch;
+            }
+            
+            bool doOnlyFaceBonesDiffer(YddFile ydd)
+            {
+                List<Drawable> drawablesWithSkel = ydd.Drawables.ToList().Where(d => d.Skeleton != null && d.Skeleton.Bones?.Items != null).ToList();
+                bool res = true;
+
+                foreach (Drawable drawable in drawablesWithSkel)
+                {
+                    foreach (Drawable other_drawable in drawablesWithSkel)
+                    {
+                        for (uint i = 0; i < drawable.Skeleton.Bones.Count; i++)
+                        {
+                            Bone bone1 = drawable.Skeleton.Bones.Items[i];
+                            Bone bone2 = other_drawable.Skeleton.Bones.Items[i];
+
+                            if (bone1.Name != bone2.Name && !matsNearEqual(bone1.AbsTransform, bone2.AbsTransform, 0.0001) && (!bone1.Name.Contains("FB") || !bone2.Name.Contains("FB")))
+                            {
+                                res = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                return res;
+            }
 
 
+            bool matsNearEqual(Matrix a, Matrix b, double tolerance)
+            {
+                float E = (float)tolerance;
+                if (MathUtil.WithinEpsilon(a.M11, b.M11, E) && MathUtil.WithinEpsilon(a.M12, b.M12, E) && MathUtil.WithinEpsilon(a.M13, b.M13, E) && MathUtil.WithinEpsilon(a.M14, b.M14, E) && MathUtil.WithinEpsilon(a.M21, b.M21, E) && MathUtil.WithinEpsilon(a.M22, b.M22, E) && MathUtil.WithinEpsilon(a.M23, b.M23, E) && MathUtil.WithinEpsilon(a.M24, b.M24, E) && MathUtil.WithinEpsilon(a.M31, b.M31, E) && MathUtil.WithinEpsilon(a.M32, b.M32, E) && MathUtil.WithinEpsilon(a.M33, b.M33, E) && MathUtil.WithinEpsilon(a.M34, b.M34, E) && MathUtil.WithinEpsilon(a.M41, b.M41, E) && MathUtil.WithinEpsilon(a.M42, b.M42, E) && MathUtil.WithinEpsilon(a.M43, b.M43, E))
+                {
+                    return MathUtil.WithinEpsilon(a.M44, b.M44, E);
+                }
+
+                return false;
+            }
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (float)AllRpfs.Count) * 100;
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (float)file.AllEntries.Count) * 100;
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+
+                    if (!entry.NameLower.EndsWith(".ydd"))
+                    {
+                        continue;
+                    }
+
+                    YddFile ydd = null;
+
+                    try
+                    {
+                        ydd = RpfMan.GetFile<YddFile>(entry);
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateStatus("Error! " + ex.ToString());
+                        continue;
+                    }
+
+                    numYdds++;
+
+                    if (doOnlyFaceBonesDiffer(ydd))
+                    {
+                        numYddsOnlyFaceBonesDiffer++;
+                    }
+                    else
+                    {
+                        Trace.WriteLine(string.Format("{0} has non face bones that differ!", entryName));
+                    }
+
+                    //if (doNumBonesMatch(ydd))
+                    //{
+                    //    numYddsSkelsMatch++;
+                    //}
+                    //else
+                    //{
+                        //Trace.WriteLine(string.Format("{0} has skeletons with different bone lengths!", entryName));
+                    //}
+
+                }
+            }
+
+            //Trace.WriteLine(string.Format("In {0:P2} of ydds all skeletons have the same number of bones", (double) numYddsSkelsMatch / numYdds));
+            Trace.WriteLine(string.Format("In {0:P2} of ydds all skeletons only differ in facial bones", (double) numYddsOnlyFaceBonesDiffer / numYdds));
+        }
+
+        public void TestDrawableMatrices()
+        {
+            string timeStamp = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds.ToString();
+            string logFileName = string.Format("./research_logs/drawable_matrices_{0}.log", timeStamp);
+            System.IO.File.WriteAllText(logFileName, string.Empty);
+            Trace.Listeners.Add(new TextWriterTraceListener(logFileName));
+            Trace.AutoFlush = true;
+
+            int numYftsWithChildMats = 0;
+            int numYftsWithIdentity = 0;
+            int numYftsWithMatsList = 0;
+            int numYftsWithIds = 0;
+            int numYftsCapacity64 = 0;
+            int numExpectedMats = 0;
+            int numYfts = 0;
+            int numExpectedMatLists = 0;
+            int numDrawable2andArchetype2 = 0;
+
+            Matrix getBoneMatrix(FragDrawable drawable, ushort boneTag)
+            {
+                foreach (Bone bone in drawable.Skeleton?.Bones?.Items)
+                {
+                    if (bone.Tag != boneTag)
+                    {
+                        continue;
+                    }
+
+                    return bone.AbsTransform;
+                }
+
+                return Matrix.Identity;
+            }
+
+            void prettyPrintMatrix(Matrix mat)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    for (int j = 0; j < 4; j++)
+                    {
+                        Debug.Write(string.Format("{0:0.000} ", mat[i, j]));
+                    }
+                    Debug.Write("\n");
+                }
+            }
+
+            bool matsNearEqual(Matrix a, Matrix b, double tolerance)
+            {
+                float E = (float) tolerance;
+                if (MathUtil.WithinEpsilon(a.M11, b.M11, E) && MathUtil.WithinEpsilon(a.M12, b.M12, E) && MathUtil.WithinEpsilon(a.M13, b.M13, E) && MathUtil.WithinEpsilon(a.M14, b.M14, E) && MathUtil.WithinEpsilon(a.M21, b.M21, E) && MathUtil.WithinEpsilon(a.M22, b.M22, E) && MathUtil.WithinEpsilon(a.M23, b.M23, E) && MathUtil.WithinEpsilon(a.M24, b.M24, E) && MathUtil.WithinEpsilon(a.M31, b.M31, E) && MathUtil.WithinEpsilon(a.M32, b.M32, E) && MathUtil.WithinEpsilon(a.M33, b.M33, E) && MathUtil.WithinEpsilon(a.M34, b.M34, E) && MathUtil.WithinEpsilon(a.M41, b.M41, E) && MathUtil.WithinEpsilon(a.M42, b.M42, E) && MathUtil.WithinEpsilon(a.M43, b.M43, E))
+                {
+                    return MathUtil.WithinEpsilon(a.M44, b.M44, E);
+                }
+
+                return false;
+            }
+
+            FragPhysTypeChild[] getOtherChildrenInGroup(FragPhysTypeChild child, FragPhysicsLOD lod)
+            {
+                FragPhysTypeChild[] children = lod.Children?.data_items;
+                List<FragPhysTypeChild> groupChildren = new List<FragPhysTypeChild>();
+
+                foreach (FragPhysTypeChild otherChild in children)
+                {
+                    if (otherChild.GroupIndex == child.GroupIndex && otherChild != child)
+                    {
+                        groupChildren.Add(otherChild);
+                    }
+                }
+
+                return groupChildren.ToArray();
+                
+            }
+
+            bool isChildMatsListGroupMatsList(FragPhysTypeChild child, FragPhysicsLOD lod)
+            {
+                FragPhysTypeChild[] groupChildren = getOtherChildrenInGroup(child, lod);
+                Matrix4F_s[] matrices = child.Drawable1.FragMatrices;
+                
+                var cnt = Math.Min(matrices.Length, child.Drawable1.FragMatricesCount);
+                for (int i = 0; i < cnt; i++)
+                {
+                    if (i >= child.Drawable1.FragMatrices.Length) continue;
+                    
+                    Matrix matFromList = matrices[i].ToMatrix();
+                    FragPhysTypeChild groupChild = groupChildren[i];
+                    Matrix childMat = groupChild.Drawable1.FragMatrix.ToMatrix();
+                    bool matsEqual = matsNearEqual(matFromList, childMat, 0.0001);
+
+                    if (!matsEqual)    
+                        return false;
+
+                }
+
+                return true;
+
+            }
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (float)AllRpfs.Count) * 100;
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (float)file.AllEntries.Count) * 100;
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+
+                    {
+                        if (!entry.NameLower.EndsWith(".yft"))
+                        {
+                            continue;
+                        }
+
+                        YftFile yft = null;
+
+                        try
+                        {
+                            yft = RpfMan.GetFile<YftFile>(entry);
+                        }
+                        catch (Exception ex)
+                        {
+                            UpdateStatus("Error! " + ex.ToString());
+                            continue;
+                        }
+
+
+                        FragPhysTypeChild[] children = yft.Fragment?.PhysicsLODGroup?.PhysicsLOD1?.Children?.data_items;
+
+                        if (children == null)
+                        {
+                            continue;
+                        }
+
+                        numYfts++;
+
+                        FragDrawable frag_drawable = yft.Fragment?.Drawable;
+
+                        if (frag_drawable?.FragMatrix.ToMatrix().IsIdentity ?? false)
+                        {
+                            numYftsWithIdentity++;
+                        }
+                        else
+                        {
+                            Trace.WriteLine(string.Format("(DRAWABLE HAS NON-IDENTITY MATRIX) {0}", entryName));
+                        }
+
+                        bool containsChildMatrix = false;
+                        bool containsMatArray = false;
+                        bool containsMatInds = false;
+                        bool allMatsExpected = true;
+                        bool matCapacity64 = false;
+                        bool allMatListsExpected = false;
+                        bool drawable2WhenArhcetype2 = true;
+                        
+
+                        //foreach ( FragPhysTypeChild child in children)
+                        for (int ci = 0; ci < children.Length; ci++)
+                        {
+                            FragPhysTypeChild child = children[ci];
+                            FragDrawable drawable = child.Drawable1;
+                            BoundComposite damagedBounds = yft.Fragment.PhysicsLODGroup.PhysicsLOD1.Archetype2?.Bound as BoundComposite;
+
+                            if (drawable == null)
+                            {
+                                continue;
+                            }
+
+                            if ((child.Drawable2 == null) && (damagedBounds != null) && damagedBounds.Children[ci] != null)
+                            {
+                                drawable2WhenArhcetype2 = false;
+                            }
+
+                            Matrix mat = drawable.FragMatrix.ToMatrix();
+                            BoundComposite composite = yft.Fragment.PhysicsLODGroup.PhysicsLOD1.Archetype1?.Bound as BoundComposite;
+                            Bounds correspondingBound = composite.Children?.data_items?[ci];
+
+                            if (!mat.Equals(Matrix4F_s.Identity))
+                            {
+                                containsChildMatrix = true;
+
+                                if (correspondingBound != null)
+                                {
+                                    Matrix boneMat = getBoneMatrix(frag_drawable, child.BoneTag);
+
+                                    Matrix boneInverse;
+                                    Matrix.Invert(ref boneMat, out boneInverse);
+
+                                    Matrix compositeTransform = correspondingBound.Transform;
+                                    Matrix expectedMat = compositeTransform * boneInverse;
+
+                                    bool isExpectedMat = matsNearEqual(mat, expectedMat, 0.0001);
+
+                                    if (!isExpectedMat)
+                                    {
+                                        //Debug.WriteLine("Bone inverse");
+                                        //prettyPrintMatrix(boneInverse);
+                                        //Debug.WriteLine("\nComposite matrix");
+                                        //prettyPrintMatrix(compositeTransform);
+                                        //Debug.WriteLine("\nChild drawable matrix");
+                                        //prettyPrintMatrix(mat);
+                                        //Debug.WriteLine("\nExpected matrix");
+                                        //prettyPrintMatrix(expectedMat);
+                                        allMatsExpected = false;
+                                    }
+
+                                }
+
+                                if (drawable.FragMatrices == null || drawable.FragMatrices.Length == 0)
+                                {
+                                    continue;
+                                }
+
+
+                                containsMatArray = true;
+
+
+                                if (drawable.FragMatrices.Length == 64)
+                                {
+                                    matCapacity64 = true;
+                                }
+
+                                if (drawable.FragMatricesInds != null && drawable.FragMatricesInds.Length > 0 && !drawable.FragMatricesInds.All(ind => ind == 0))
+                                {
+                                    containsMatInds = true;
+                                }
+
+                                allMatListsExpected = isChildMatsListGroupMatsList(child, yft.Fragment.PhysicsLODGroup.PhysicsLOD1);
+                            }
+                        }
+
+                        if (containsChildMatrix)
+                        {
+                            numYftsWithChildMats++;
+                            //Trace.WriteLine(string.Format("(CONTAINS CHILD W/ NON-IDENTITY MATRIX) {0}", entryName));
+                        }
+
+                        if (allMatsExpected)
+                        {
+                            numExpectedMats++;
+                        }
+                        else
+                        {
+                            Trace.WriteLine(string.Format("(CHILD DRAWABLE MATRIX CALCULATION FAILED) {0}", entryName));
+                        }
+
+                        if (drawable2WhenArhcetype2)
+                        {
+                            numDrawable2andArchetype2++;
+                        }
+                        else
+                        {
+                            Trace.WriteLine(string.Format("(HAS DRAWABLE2 WITHOUT ARCHETYPE2) {0}", entryName));
+                        }
+
+                        if (containsMatArray)
+                        {
+                            numYftsWithMatsList++;
+
+                            if (matCapacity64)
+                            {
+                                numYftsCapacity64++;
+                            }
+                            else
+                            {
+                                Trace.WriteLine(string.Format("(MATRIX CAPACITY NOT 64) {0}", entryName));
+
+                            }
+
+                            if (containsMatInds)
+                            {
+                                numYftsWithIds++;
+                            }
+
+
+                            if (allMatListsExpected)
+                            {
+                                numExpectedMatLists++;
+                            }
+                            else
+                            {
+                                Trace.WriteLine(string.Format("(CONTAINS UNEXPECTED MAT LIST) {0}", entryName));                            
+                            }
+
+                            //Trace.WriteLine(string.Format("(CONTAINS MATRIX ARRAY) {0}", entryName));
+
+                        }
+
+
+                    }
+                }
+            }
+
+            Trace.WriteLine(string.Format("In {0:P2} of yfts the Drawable matrix is an identity matrix.", (double) numYftsWithIdentity / numYfts));
+            Trace.WriteLine(string.Format("\n{0:P2} of yfts have children with matrices that aren't identity.", (double) numYftsWithChildMats / numYfts));
+            Trace.WriteLine(string.Format("In {0:P2} of those yfts all child matrices = boneInverse * compositeTransform.", (double) numExpectedMats / numYftsWithChildMats));
+
+            Trace.WriteLine(string.Format("\n{0:P2} of yfts have children with matrices list.", (double) numYftsWithMatsList / numYfts));
+            Trace.WriteLine(string.Format("In {0:P2} of those yfts all matrices lists have capacity=64.", (double) numYftsCapacity64 / numYftsWithMatsList));
+            Trace.WriteLine(string.Format("In {0:P2} of those yfts matrix indices are defined.", (double) numYftsWithIds / numYftsWithMatsList));
+
+            Trace.WriteLine(string.Format("In {0:P2} of those yfts the matrix lists are a collection of matrices for each child with the same group index.", (double)numExpectedMatLists / numYftsWithMatsList));
+            Trace.WriteLine(string.Format("\nIn {0:P2} of yfts Drawable2 matrices are only present when Archetype2 is present with a corresponding child bound.", (double)numDrawable2andArchetype2 / numYfts));
+
+        }
         private class ShaderXmlDataCollection
         {
             public MetaHash Name { get; set; }
