@@ -283,9 +283,9 @@ namespace CodeWalker.Forms
 
             Renderer.RenderSkyAndClouds();
 
-
             RenderSingleItem();
 
+            Renderer.RenderBounds(MapSelectionMode.Entity);
 
             RenderGrid(context);
 
@@ -2416,6 +2416,10 @@ namespace CodeWalker.Forms
         {
             Renderer.rendercollisionmeshes = ShowCollisionMeshesCheckBox.Checked;
             Renderer.rendercollisionmeshlayerdrawable = ShowCollisionMeshesCheckBox.Checked;
+        }
+        private void ShowBoundingBoxesCheckBox_CheckedChanged(object sender, EventArgs e)
+        {
+            Renderer.renderboundingboxes = ShowBoundingBoxesCheckBox.Checked;
         }
 
         private void WireframeCheckBox_CheckedChanged(object sender, EventArgs e)

@@ -1938,6 +1938,28 @@ namespace CodeWalker.Rendering
                 var rgeom = new RenderableBoundGeometry(this);
                 var child = bound.Children.data_items[i];
                 var xform = (child != null) ? child.Transform : Matrix.Identity;
+
+                if (child != null)
+                {
+                    Vector3 boxMin = child.BoxMin;
+                    Vector3 boxMax = child.BoxMax;
+
+                    var mat = (BoundsMaterialType)child.MaterialIndex;
+                    var colourf = BoundsMaterialTypes.GetMaterialColour(mat);
+                    var colour = (uint)colourf.ToRgba();
+
+                    var extent = (boxMax - boxMin).Abs();
+
+                    var rbox = new RenderableBox();
+                    rbox.Colour = colour;
+                    rbox.Corner = boxMin;
+                    rbox.Edge1 = new Vector3(extent.X, 0, 0);
+                    rbox.Edge2 = new Vector3(0, extent.Y, 0);
+                    rbox.Edge3 = new Vector3(0, 0, extent.Z);
+                    
+          
+                }
+
                 if (child is BoundGeometry bgeom)
                 {
                     rgeom.Init(bgeom);

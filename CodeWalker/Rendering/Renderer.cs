@@ -9,6 +9,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace CodeWalker.Rendering
 {
@@ -115,6 +116,8 @@ namespace CodeWalker.Rendering
 
         public bool rendercollisionmeshes = Settings.Default.ShowCollisionMeshes;
         public bool rendercollisionmeshlayerdrawable = true;
+
+        public bool renderboundingboxes = false;
 
         public bool renderskeletons = false;
         private List<RenderSkeletonItem> renderskeletonlist = new List<RenderSkeletonItem>();
@@ -1379,7 +1382,7 @@ namespace CodeWalker.Rendering
 
             shaders.SetDepthStencilMode(context, clip ? DepthStencilMode.Enabled : DepthStencilMode.DisableAll);
             var shader = shaders.Bounds;
-
+            //Debug.WriteLine(HilightBoxes.Count);
             if ((BoundingBoxes.Count > 0) || (HilightBoxes.Count > 0))
             {
                 shader.SetMode(BoundsShaderMode.Box);
@@ -3273,7 +3276,19 @@ namespace CodeWalker.Rendering
                 rndbl.Cloth.Update(currentRealTime);
             }
 
+            var drawable = rndbl.Key as Drawable;
 
+            if (drawable != null && renderboundingboxes && !rendercollisionmeshes)
+            {
+
+                MapBox mb = new MapBox();
+                mb.CamRelPos = camrel;
+                mb.BBMin = drawable.BoundingBoxMin;
+                mb.BBMax = drawable.BoundingBoxMax;
+                mb.Orientation = orientation;
+                mb.Scale = scale;
+                HilightBoxes.Add(mb);
+            }
 
             if ((rendercollisionmeshes || (SelectionMode == MapSelectionMode.Collision)) && rendercollisionmeshlayerdrawable)
             {
@@ -3622,6 +3637,22 @@ namespace CodeWalker.Rendering
                         rbginst.Inst.Orientation = orientation;
                         rbginst.Inst.CamRel = rbginst.Inst.Position - camera.Position;
                         shaders.Enqueue(ref rbginst);
+
+                        if (renderboundingboxes)
+                        {
+                            MapBox mb = new MapBox();
+                            geom.Bound.Transform.Decompose(out Vector3 compositeScale, out Quaternion compositeRotation, out Vector3 compositeTranslation);
+
+                            mb.CamRelPos = compositeTranslation - camera.Position;
+                            //mb.CamRelPos = -camera.Position;
+                            mb.BBMin = geom.Bound.BoxMin;
+                            mb.BBMax = geom.Bound.BoxMax;
+                            mb.Orientation = compositeRotation;
+                            mb.Scale = compositeScale;
+                            //mb.Orientation = orientation;
+                            //mb.Scale = scale;
+                            HilightBoxes.Add(mb);
+                        }
                     }
                 }
 
@@ -3632,6 +3663,18 @@ namespace CodeWalker.Rendering
                     rb.Entity = entity;
                     RenderedBoundComps.Add(rb);
                 }
+            }
+
+
+            if (renderboundingboxes)
+            {
+                MapBox mb = new MapBox();
+                mb.CamRelPos = -camera.Position;
+                mb.BBMin = bounds.BoxMin;
+                mb.BBMax = bounds.BoxMax;
+                mb.Orientation = orientation;
+                mb.Scale = scale;
+                BoundingBoxes.Add(mb);
             }
 
         }

@@ -105,6 +105,7 @@
             this.ToolsPanelShowButton = new System.Windows.Forms.Button();
             this.SaveFileDialog = new System.Windows.Forms.SaveFileDialog();
             this.FolderBrowserDialog = new System.Windows.Forms.FolderBrowserDialog();
+            this.ShowBoundingBoxesCheckBox = new System.Windows.Forms.CheckBox();
             this.StatusStrip.SuspendLayout();
             this.ConsolePanel.SuspendLayout();
             this.ToolsPanel.SuspendLayout();
@@ -553,6 +554,7 @@
             // 
             // OptionsRenderTabPage
             // 
+            this.OptionsRenderTabPage.Controls.Add(this.ShowBoundingBoxesCheckBox);
             this.OptionsRenderTabPage.Controls.Add(this.RenderModeComboBox);
             this.OptionsRenderTabPage.Controls.Add(this.FragGlassCheckBox);
             this.OptionsRenderTabPage.Controls.Add(this.label14);
@@ -726,7 +728,7 @@
             // GridCheckBox
             // 
             this.GridCheckBox.AutoSize = true;
-            this.GridCheckBox.Location = new System.Drawing.Point(6, 257);
+            this.GridCheckBox.Location = new System.Drawing.Point(6, 278);
             this.GridCheckBox.Name = "GridCheckBox";
             this.GridCheckBox.Size = new System.Drawing.Size(45, 17);
             this.GridCheckBox.TabIndex = 17;
@@ -743,7 +745,7 @@
             "40",
             "60",
             "100"});
-            this.GridCountComboBox.Location = new System.Drawing.Point(86, 308);
+            this.GridCountComboBox.Location = new System.Drawing.Point(86, 329);
             this.GridCountComboBox.Name = "GridCountComboBox";
             this.GridCountComboBox.Size = new System.Drawing.Size(132, 21);
             this.GridCountComboBox.TabIndex = 21;
@@ -752,7 +754,7 @@
             // label2
             // 
             this.label2.AutoSize = true;
-            this.label2.Location = new System.Drawing.Point(6, 311);
+            this.label2.Location = new System.Drawing.Point(6, 332);
             this.label2.Name = "label2";
             this.label2.Size = new System.Drawing.Size(59, 13);
             this.label2.TabIndex = 20;
@@ -778,7 +780,7 @@
             "1.0",
             "10",
             "100"});
-            this.GridSizeComboBox.Location = new System.Drawing.Point(86, 281);
+            this.GridSizeComboBox.Location = new System.Drawing.Point(86, 302);
             this.GridSizeComboBox.Name = "GridSizeComboBox";
             this.GridSizeComboBox.Size = new System.Drawing.Size(132, 21);
             this.GridSizeComboBox.TabIndex = 19;
@@ -800,7 +802,7 @@
             // label1
             // 
             this.label1.AutoSize = true;
-            this.label1.Location = new System.Drawing.Point(6, 284);
+            this.label1.Location = new System.Drawing.Point(6, 305);
             this.label1.Name = "label1";
             this.label1.Size = new System.Drawing.Size(70, 13);
             this.label1.TabIndex = 18;
@@ -969,6 +971,17 @@
             // 
             this.SaveFileDialog.Filter = "All files|*.*";
             // 
+            // ShowBoundingBoxesCheckBox
+            // 
+            this.ShowBoundingBoxesCheckBox.AutoSize = true;
+            this.ShowBoundingBoxesCheckBox.Location = new System.Drawing.Point(6, 241);
+            this.ShowBoundingBoxesCheckBox.Name = "ShowBoundingBoxesCheckBox";
+            this.ShowBoundingBoxesCheckBox.Size = new System.Drawing.Size(131, 17);
+            this.ShowBoundingBoxesCheckBox.TabIndex = 26;
+            this.ShowBoundingBoxesCheckBox.Text = "Show bounding boxes";
+            this.ShowBoundingBoxesCheckBox.UseVisualStyleBackColor = true;
+            this.ShowBoundingBoxesCheckBox.CheckedChanged += new System.EventHandler(this.ShowBoundingBoxesCheckBox_CheckedChanged);
+            // 
             // ModelForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -1093,5 +1106,6 @@
         private System.Windows.Forms.ToolStripMenuItem SaveAllTexturesMenuButton;
         private System.Windows.Forms.ToolStripMenuItem SaveSharedTexturesMenuButton;
         private System.Windows.Forms.FolderBrowserDialog FolderBrowserDialog;
+        private System.Windows.Forms.CheckBox ShowBoundingBoxesCheckBox;
     }
 }
