@@ -2,8 +2,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -223,6 +225,8 @@ namespace CodeWalker.GameFiles
                 //TestCacheFiles();
                 //TestHeightmaps();
                 //TestWatermaps();
+                //TestCalcShrunkVerts();
+                TestOctants();
                 //GetShadersXml();
                 //GetArchetypeTimesList();
                 //string typestr = PsoTypes.GetTypesString();
@@ -5210,6 +5214,268 @@ namespace CodeWalker.GameFiles
             }
             if (errorfiles.Count > 0)
             { }
+        }
+
+        public void TestOctants()
+        {
+            string timeStamp = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds.ToString();
+            string logFileName = string.Format("./research_logs/octants_calc_test_{0}.log", timeStamp);
+            File.WriteAllText(logFileName, string.Empty);
+            Trace.Listeners.Add(new TextWriterTraceListener(logFileName));
+            Trace.AutoFlush = true;
+
+            int numCorrectCalculations = 0;
+            int numYfts = 0;
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (float)AllRpfs.Count) * 100;
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (float)file.AllEntries.Count) * 100;
+
+                    if (!entry.NameLower.EndsWith(".yft"))
+                    {
+                        continue;
+                    }
+
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+                    YftFile yft = null;
+                    try
+                    {
+                        yft = RpfMan.GetFile<YftFile>(entry);
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateStatus("Error! " + ex.ToString());
+                    }
+
+                    // Test octant calculation
+                    //Trace.WriteLine(String.Format("Testing Octants calculation for '{0}'...", Path.GetFileName(entry.Path)));
+                    bool allCalculationsSuccessful = true;
+                    numYfts++;
+
+                    void traceOctants(BoundGeomOctants octants)
+                    {
+                        Trace.Indent();
+                        for (int ri = 0; ri < octants.Items.Length; ri++)
+                        {
+                            Trace.WriteLine(String.Join(", ", octants.Items[ri]));
+                        }
+                        Trace.Unindent();
+                    }
+
+                    if (yft?.Fragment?.PhysicsLODGroup?.PhysicsLOD1?.Archetype1?.Bound != null)
+                    {
+                        BoundComposite archetypeBounds = yft.Fragment.PhysicsLODGroup.PhysicsLOD1.Archetype1.Bound as BoundComposite;
+
+                        foreach (Bounds child in archetypeBounds.Children.data_items)
+                        {
+                            BoundGeometry geom = child as BoundGeometry;
+                                
+                            if (geom is null)
+                            {
+                                continue;
+                            }
+
+                            if (geom.VerticesShrunk is null)
+                            {
+                                continue;
+                            }
+
+                            if (geom.Octants is null)
+                            {
+                                continue;
+                            }
+
+                            BoundGeometry testGeom = new BoundGeometry();
+                            testGeom.Vertices = geom.Vertices;
+                            testGeom.Polygons = geom.Polygons;
+                            testGeom.CalculateVertsShrunkByMargin();
+                            testGeom.CalculateOctants();
+
+
+                            bool octantsMatch = true;
+                            for (int r = 0; r < 8; r++)
+                            {
+                                if (!geom.Octants.Items[r].SequenceEqual(testGeom.Octants.Items[r]))
+                                {
+                                    octantsMatch = false;
+                                    break;
+                                }
+                            }
+
+                            if (!octantsMatch)
+                            {
+                                allCalculationsSuccessful = false;
+
+                                Trace.WriteLine("Original Octants:");
+                                traceOctants(geom.Octants);
+
+                                Trace.WriteLine("Calculated Octants:");
+                                traceOctants(testGeom.Octants);
+
+                                break;
+                            }
+                        }
+                    }
+
+                    if (allCalculationsSuccessful)
+                    {
+                        Trace.WriteLine(String.Format("Octants calculation SUCCESSFUL for '{0}'!", Path.GetFileName(entry.Path)));
+                        numCorrectCalculations++;
+                    }
+                    else
+                    {
+                        //Trace.WriteLine(String.Format("Octants calculation FAILED for '{0}'!", Path.GetFileName(entry.Path)));
+
+                    }
+                }
+            }
+
+            Trace.WriteLine("=========================");
+            Trace.WriteLine(String.Format("Octant calculations successful for {0:0.00}% of yfts.", (numCorrectCalculations / numYfts) * 100));
+            Trace.Flush();
+        }
+
+        public void TestCalcShrunkVerts()
+        {
+            string timeStamp = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds.ToString();
+            string logFileName = string.Format("./research_logs/test_verts2_calc_{0}.log", timeStamp);
+            File.WriteAllText(logFileName, string.Empty);
+            Trace.Listeners.Add(new TextWriterTraceListener(logFileName));
+            Trace.AutoFlush = true;
+
+            BoundComposite getBounds(RpfEntry entry)
+            {
+                if (entry.NameLower.EndsWith(".yft"))
+                {
+                    YftFile yft = null;
+
+                    try
+                    {
+                        yft = RpfMan.GetFile<YftFile>(entry);
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateStatus("Error! " + ex.ToString());
+                        return null;
+                    }
+
+                    return yft.Fragment?.PhysicsLODGroup?.PhysicsLOD1?.Archetype1?.Bound as BoundComposite;
+                }
+                else if (entry.NameLower.EndsWith(".ydr"))
+                {
+                    YdrFile ydr = null;
+
+                    try
+                    {
+                        ydr = RpfMan.GetFile<YdrFile>(entry);
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateStatus("Error! " + ex.ToString());
+                        return null;
+                    }
+
+                    return ydr.Drawable?.Bound as BoundComposite;
+                }
+                else if (entry.NameLower.EndsWith(".ybn"))
+                {
+                    YbnFile ybn = null;
+
+                    try
+                    {
+                        ybn = RpfMan.GetFile<YbnFile>(entry);
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateStatus("Error! " + ex.ToString());
+                        return null;
+                    }
+
+                    return ybn.Bounds as BoundComposite;
+                }
+
+                return null;
+            }
+
+            List<double> allPercentDiffs = new List<double>();
+            int numTests = 0;
+
+            for (int i = 0; i < AllRpfs.Count; i++)
+            {
+                RpfFile file = AllRpfs[i];
+                double percentRpfs = (i / (double)AllRpfs.Count) * 100;
+
+                if (numTests > 20)
+                {
+                    break;
+                }
+
+                for (int j = 0; j < file.AllEntries.Count; j++)
+                {
+                    RpfEntry entry = file.AllEntries[j];
+                    string entryName = Path.GetFileName(entry.Path);
+                    double percentEntries = (j / (double)file.AllEntries.Count) * 100;
+                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, percentEntries, file.Name, percentRpfs));
+
+                    if (numTests > 20)
+                    {
+                        break;
+                    }
+
+                    BoundComposite composite = getBounds(entry);
+
+                    if (composite is null) continue;
+
+                    bool isTested = false;
+
+                    foreach (Bounds child in composite.Children.data_items)
+                    {
+                        BoundGeometry geom = child as BoundGeometry;
+
+                        if (geom == null || geom.VerticesShrunk == null) continue;
+
+                        isTested = true;
+
+                        Vector3[] correctShrunkVerts = geom.VerticesShrunk;
+                        geom.CalculateVertsShrunkByMargin();
+                        Vector3[] calculatedShrunkVerts = geom.VerticesShrunk;
+
+                        List<double> percentDiffs = new List<double>();
+
+                        for (int vi = 0; vi < geom.Vertices.Length; vi++)
+                        {
+                            Vector3 correctVert = correctShrunkVerts[vi];
+                            Vector3 calcVert = calculatedShrunkVerts[vi];
+
+                            percentDiffs.Add((correctVert.X - calcVert.X) / calcVert.X);
+                            percentDiffs.Add((correctVert.Y - calcVert.Y) / calcVert.Y);
+                            percentDiffs.Add((correctVert.Z - calcVert.Z) / calcVert.Z);
+                        }
+
+                        allPercentDiffs.Add(percentDiffs.Average());
+                    }
+
+                    if (isTested)
+                    {
+                        numTests++;
+                    }
+                }
+            }
+
+            UpdateStatus("Computing averages...");
+            double avg = allPercentDiffs.Average();
+            double high = allPercentDiffs.Max();
+            double low = allPercentDiffs.Min();
+
+            Trace.WriteLine(string.Format("Average percent difference: {0:P3}", avg));
+            Trace.WriteLine(string.Format("Best percent difference: {0:P3}", high));
+            Trace.WriteLine(string.Format("Worst percent difference: {0:P3}", low));
         }
         public void GetShadersXml()
         {
