@@ -979,7 +979,7 @@ namespace CodeWalker.GameFiles
         public uint Unknown_12Ch { get; set; } // 0x00000000
 
 
-        public Vector3[] Vertices2 { get; set; }//found in some YFTs, same count as Vertices, and contents are similar
+        public Vector3[] VerticesShrunk { get; set; } // Vertices but shrunk by margin along normal
         public BoundPolygon[] Polygons { get; set; }
         public Vector3[] Vertices { get; set; }
         public BoundMaterialColour[] VertexColours { get; set; }//not sure, it seems like colours anyway, see eg. prologue03_10.ybn
@@ -1043,14 +1043,14 @@ namespace CodeWalker.GameFiles
             this.Unknown_12Ch = reader.ReadUInt32();
 
 
-            var verts2 = reader.ReadStructsAt<BoundVertex_s>(this.Vertices2Pointer, this.Vertices2Count);
-            if (verts2 != null) //seems to be in YFT's
+            var vertsShrunk = reader.ReadStructsAt<BoundVertex_s>(this.Vertices2Pointer, this.Vertices2Count);
+            if (vertsShrunk != null)
             {
-                Vertices2 = new Vector3[verts2.Length];
-                for (int i = 0; i < verts2.Length; i++)
+                VerticesShrunk = new Vector3[vertsShrunk.Length];
+                for (int i = 0; i < vertsShrunk.Length; i++)
                 {
-                    var bv = verts2[i];
-                    Vertices2[i] = bv.Vector * Quantum;
+                    var bv = vertsShrunk[i];
+                    VerticesShrunk[i] = bv.Vector * Quantum;
                 }
             }
 
@@ -1204,9 +1204,9 @@ namespace CodeWalker.GameFiles
             {
                 YbnXml.WriteRawArray(sb, Vertices, indent, "Vertices", "", YbnXml.FormatVector3, 1);
             }
-            if (Vertices2 != null)
+            if (VerticesShrunk != null)
             {
-                YbnXml.WriteRawArray(sb, Vertices2, indent, "Vertices2", "", YbnXml.FormatVector3, 1);
+                YbnXml.WriteRawArray(sb, VerticesShrunk, indent, "Vertices2", "", YbnXml.FormatVector3, 1);
             }
             if (VertexColours != null)
             {
@@ -1228,7 +1228,6 @@ namespace CodeWalker.GameFiles
             Materials = XmlMeta.ReadItemArray<BoundMaterial_s>(node, "Materials");
             MaterialColours = XmlYbn.GetChildRawBoundMaterialColourArray(node, "MaterialColours");
             Vertices = Xml.GetChildRawVector3ArrayNullable(node, "Vertices");
-            Vertices2 = Xml.GetChildRawVector3ArrayNullable(node, "Vertices2");
             VertexColours = XmlYbn.GetChildRawBoundMaterialColourArray(node, "VertexColours");
 
             var pnode = node.SelectSingleNode("Polygons");
@@ -1253,10 +1252,8 @@ namespace CodeWalker.GameFiles
                 }
             }
 
-            if (Vertices2 != null && Vertices2.Length > 0)
-            {
-                CalculateOctants();
-            }
+            CalculateVertsShrunkByMargin();
+            CalculateOctants();
 
             BuildMaterials();
             CalculateQuantum();
@@ -1274,10 +1271,10 @@ namespace CodeWalker.GameFiles
             UpdateTriangleAreas();
 
             var list = new List<IResourceBlock>(base.GetReferences());
-            if (Vertices2 != null)
+            if (VerticesShrunk != null)
             {
                 var verts = new List<BoundVertex_s>();
-                foreach (var v in Vertices2)
+                foreach (var v in VerticesShrunk)
                 {
                     var vq = v / Quantum;
                     var vs = new BoundVertex_s(vq);
@@ -1756,16 +1753,16 @@ namespace CodeWalker.GameFiles
             {
                 List<uint> octantIndices = new List<uint>();
 
-                for (uint ind1 = 0; ind1 < Vertices2.Length; ind1++)
+                for (uint ind1 = 0; ind1 < VerticesShrunk.Length; ind1++)
                 {
-                    Vector3 vertex = Vertices2[ind1];
+                    Vector3 vertex = VerticesShrunk[ind1];
 
                     bool shouldAdd = true;
                     List<uint> octantIndices2 = new List<uint>();
 
                     foreach (uint ind2 in octantIndices)
                     {
-                        Vector3 vertex2 = Vertices2[ind2];
+                        Vector3 vertex2 = VerticesShrunk[ind2];
 
                         if (isShadowed(vertex, vertex2, octant))
                         {
@@ -1800,6 +1797,72 @@ namespace CodeWalker.GameFiles
             }
         }
 
+        public void CalculateVertsShrunkByMargin()
+        {
+            Vector3[] vertNormals = CalculateVertNormals();
+            VerticesShrunk = new Vector3[Vertices.Length];
+
+            for (int i = 0; i < Vertices.Length; i++)
+            {
+                Vector3 normalShrunk = vertNormals[i] * -Margin;
+                VerticesShrunk[i] = Vertices[i] + normalShrunk;
+            }
+        }
+
+        private Vector3[] CalculateVertNormals()
+        {
+
+            Vector3[] vertNormals = new Vector3[Vertices.Length];
+
+            for (int i = 0; i < Vertices.Length; i++)
+            {
+                List<BoundPolygonTriangle> adjacentTris = GetAdjacentTriangles(i);
+                Vector3 normal = GetAvgNormalOfTris(adjacentTris);
+
+                vertNormals[i] = normal;
+            }
+
+            return vertNormals;
+        }
+
+        private List<BoundPolygonTriangle> GetAdjacentTriangles(int vertInd)
+        {
+            List<BoundPolygonTriangle> adjacentTris = new List<BoundPolygonTriangle>();
+            foreach (BoundPolygonTriangle tri in Polygons)
+            {
+                if (!(tri is BoundPolygonTriangle)) continue;
+
+                bool adjacent = tri.vertIndex1 == vertInd || tri.vertIndex2 == vertInd || tri.vertIndex3 == vertInd;
+
+                if (!adjacent) continue;
+
+                adjacentTris.Add(tri);
+            }
+
+            return adjacentTris;
+        }
+
+        private Vector3 GetAvgNormalOfTris(List<BoundPolygonTriangle> tris)
+        {
+            Vector3 normal = Vector3.Zero;
+
+            foreach (BoundPolygonTriangle tri in tris)
+            {
+                Vector3 vert1Local = tri.Vertex3 - tri.Vertex1;
+                Vector3 vert2Local = tri.Vertex3 - tri.Vertex2;
+
+                Vector3 triNormal = Vector3.Cross(vert1Local, vert2Local);
+                triNormal.Normalize();
+
+                normal += triNormal;
+            }
+
+            Vector3 normalAvg = normal * (1.0f / tris.Count);
+            normalAvg.Normalize();
+
+            return normalAvg;
+        }
+
         public void CalculateQuantum()
         {
             var min = new Vector3(float.MaxValue);
@@ -1812,9 +1875,9 @@ namespace CodeWalker.GameFiles
                     max = Vector3.Max(max, v);
                 }
             }
-            if (Vertices2 != null)
+            if (VerticesShrunk != null)
             {
-                foreach (var v in Vertices2)
+                foreach (var v in VerticesShrunk)
                 {
                     min = Vector3.Min(min, v);
                     max = Vector3.Max(max, v);
@@ -2067,7 +2130,7 @@ namespace CodeWalker.GameFiles
                 }
 
                 var verts = Vertices.ToList();
-                var verts2 = Vertices2?.ToList();
+                var verts2 = VerticesShrunk?.ToList();
                 var vertcols = VertexColours?.ToList();
                 var vertobjs = VertexObjects?.ToList();
                 verts.RemoveAt(index);
@@ -2075,7 +2138,7 @@ namespace CodeWalker.GameFiles
                 vertcols?.RemoveAt(index);
                 vertobjs?.RemoveAt(index);
                 Vertices = verts.ToArray();
-                Vertices2 = verts2?.ToArray();
+                VerticesShrunk = verts2?.ToArray();
                 VertexColours = vertcols?.ToArray();
                 VertexObjects = vertobjs?.ToArray();
                 VerticesCount = (uint)verts.Count;
@@ -2133,7 +2196,7 @@ namespace CodeWalker.GameFiles
         public int AddVertex()
         {
             var verts = Vertices?.ToList() ?? new List<Vector3>();
-            var verts2 = Vertices2?.ToList();
+            var verts2 = VerticesShrunk?.ToList();
             var vertcols = VertexColours?.ToList();
             var vertobjs = VertexObjects?.ToList();
             var index = verts.Count;
@@ -2144,7 +2207,7 @@ namespace CodeWalker.GameFiles
             vertobjs?.Add(null);
 
             Vertices = verts.ToArray();
-            Vertices2 = verts2?.ToArray();
+            VerticesShrunk = verts2?.ToArray();
             VertexColours = vertcols?.ToArray();
             VertexObjects = vertobjs?.ToArray();
             VerticesCount = (uint)verts.Count;
