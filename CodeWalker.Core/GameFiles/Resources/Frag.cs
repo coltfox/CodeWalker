@@ -96,6 +96,7 @@ namespace CodeWalker.GameFiles
         public ResourcePointerArray64<string_r> DrawableArrayNames { get; set; }
         public string Name { get; set; }
         public FragBoneTransforms BoneTransforms { get; set; }
+        public bool UseBoneTransforms { get => BoneTransforms.Unknown_12h == 0; }
         public ResourcePointerArray64<FragGlassWindow> GlassWindows { get; set; }
         public FragPhysicsLODGroup PhysicsLODGroup { get; set; }
         public FragDrawable DrawableCloth { get; set; }
