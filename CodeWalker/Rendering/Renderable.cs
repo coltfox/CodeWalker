@@ -182,7 +182,7 @@ namespace CodeWalker.Rendering
                 {
                     var frag = fd.OwnerFragment;
                     var pose = frag?.BoneTransforms;
-                    if ((pose != null) && (pose.Items != null)) //seems to be the default pose
+                    if (frag.UseBoneTransforms && (pose != null) && (pose.Items != null))
                     {
                         var posebonecount = pose.Items.Length;
                         if ((modeltransforms == null))// || (modeltransforms.Length != posebonecount))
