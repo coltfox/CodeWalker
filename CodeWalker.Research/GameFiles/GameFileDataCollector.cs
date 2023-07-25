@@ -9,32 +9,53 @@ namespace CodeWalker.Research
 {
     public abstract class GameFileDataCollector
     {
-        public GameFileCache GameFileCache { get; } = GameFileCacheFactory.Create();
+        public RpfManager RpfMan;
         public readonly string LogFilePath = "./logs";
         public abstract string TestName { get; }
 
         public double Progress;
         public string Status;
 
-        public void Start()
+        public GameFileDataCollector()
+        {
+            RpfMan = new RpfManager();
+        }
+
+        public void Start(int? numFilesToTest = null)
         {
             InitCache();
             StartTraceLogFile();
 
             OnStart();
+            int numFilesTested = 0;
 
             foreach (RpfEntry entry in IterAllRpfEntries())
             {
+                if (numFilesToTest != null && numFilesTested >= numFilesToTest)
+                {
+                    break;
+                }
+
                 if (!IsValidEntry(entry))
                 {
                     continue;
                 }
 
-                HandleEntry(entry);
+                numFilesTested++;
+
+                try
+                {
+                    HandleEntry(entry);
+                }
+                catch (Exception e)
+                {
+                    string errorText = string.Format("Error encountered while testing '{0}'!\n{1}", Path.GetFileName(entry.Path), e.ToString());
+                    Trace.WriteLine(errorText);
+                    UpdateStatus(errorText);
+                }
             }
 
-            OnEnd();
-            GameFileCache.Clear();
+            OnEnd(numFilesTested);
         }
 
         public void StartTraceLogFile()
@@ -46,7 +67,7 @@ namespace CodeWalker.Research
                 Directory.CreateDirectory(LogFilePath);
             }
 
-            string logFileName = string.Format("{0}/{1}_{2}.log", LogFilePath, TestName, timeStamp);
+            string logFileName = string.Format("{0}/{1}.{2}.log", LogFilePath, TestName, timeStamp);
 
             File.WriteAllText(logFileName, string.Empty);
 
@@ -55,20 +76,19 @@ namespace CodeWalker.Research
         }
         public IEnumerable<RpfEntry> IterAllRpfEntries()
         {
-            GameFileCache.Init(UpdateStatus, UpdateStatus);
-            List<RpfFile> allRpfs = GameFileCache.AllRpfs;
+            List<RpfFile> allRpfs = RpfMan.AllRpfs;
 
             for (int i = 0; i < allRpfs.Count; i++)
             {
                 RpfFile file = allRpfs[i];
-                double percentRpfs = (i / (float)allRpfs.Count) * 100;
+                double percentRpfs = (double) i / allRpfs.Count;
                 for (int j = 0; j < file.AllEntries.Count; j++)
                 {
                     RpfEntry entry = file.AllEntries[j];
                     string entryName = Path.GetFileName(entry.Path);
 
-                    Progress = (j / (float)file.AllEntries.Count) * 100;
-                    UpdateStatus(string.Format("Testing {0} ({1:0.00}%) in {2} ({3:0.00}%))", entryName, Progress, file.Name, percentRpfs));
+                    Progress = (double) j / file.AllEntries.Count;
+                    UpdateStatus(string.Format("Testing ({0:P2}) in {1} ({2:P2})\n\t'{3}')", Progress, file.Name, percentRpfs, entryName));
 
                     yield return entry;
                 }
@@ -87,8 +107,7 @@ namespace CodeWalker.Research
 
             GTA5Keys.LoadFromPath(GTAFolder.CurrentGTAFolder, Settings.Default.Key);
 
-            GameFileCache.EnableDlc = true;
-            GameFileCache.Init(UpdateStatus, UpdateStatus);
+            RpfMan.Init(GTAFolder.CurrentGTAFolder, UpdateStatus, UpdateStatus);
         }
 
         public void UpdateStatus(string status)
@@ -98,7 +117,10 @@ namespace CodeWalker.Research
         }
 
         public virtual void OnStart() { }
-        public virtual void OnEnd() { }
+        public virtual void OnEnd(int numFilesTested)
+        {
+            Trace.WriteLine(string.Format("{0} files tested.", numFilesTested));
+        }
 
         public abstract bool IsValidEntry(RpfEntry entry);
 
