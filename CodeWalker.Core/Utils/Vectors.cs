@@ -82,6 +82,30 @@ namespace CodeWalker
         {
             return new Quaternion(v);
         }
+
+        public static Vector3 MinVector(Vector3[] vectors)
+        {
+            Vector3 minCorner = new Vector3(float.MaxValue);
+
+            foreach (Vector3 vec in vectors)
+            {
+                minCorner = Vector3.Min(minCorner, vec);
+            }
+
+            return minCorner;
+        }
+
+        public static Vector3 MaxVector(Vector3[] vectors)
+        {
+            Vector3 maxCorner = new Vector3(float.MinValue);
+
+            foreach (Vector3 vec in vectors)
+            {
+                maxCorner = Vector3.Max(maxCorner, vec);
+            }
+
+            return maxCorner;
+        }
     }
 
 
@@ -127,16 +151,22 @@ namespace CodeWalker
         public static BoundingBox Transform(this BoundingBox b, Vector3 position, Quaternion orientation, Vector3 scale)
         {
             var mat = Matrix.Transformation(Vector3.Zero, Quaternion.Identity, scale, Vector3.Zero, orientation, position);
-            var matabs = mat;
-            matabs.Column1 = mat.Column1.Abs();
-            matabs.Column2 = mat.Column2.Abs();
-            matabs.Column3 = mat.Column3.Abs();
-            matabs.Column4 = mat.Column4.Abs();
-            var bbcenter = (b.Maximum + b.Minimum) * 0.5f;
-            var bbextent = (b.Maximum - b.Minimum) * 0.5f;
-            var ncenter = Vector3.TransformCoordinate(bbcenter, mat);
-            var nextent = Vector3.TransformNormal(bbextent, matabs).Abs();
-            return new BoundingBox(ncenter - nextent, ncenter + nextent);
+            return b.Transform(mat);
+        }
+
+        public static BoundingBox Transform(this BoundingBox b, Matrix transforms)
+        {
+            Vector3[] corners = b.GetCorners();
+            Vector3[] cornersTransformed = new Vector3[8];
+
+            for (int i = 0; i < 8; i++)
+            {
+                if (i >= corners.Length) cornersTransformed[i] = Vector3.Zero;
+
+                cornersTransformed[i] = transforms.Multiply(corners[i]);
+            }
+
+            return new BoundingBox(Vectors.MinVector(cornersTransformed), Vectors.MaxVector(cornersTransformed));
         }
 
     }
